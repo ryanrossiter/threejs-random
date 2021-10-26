@@ -1,13 +1,37 @@
 import * as THREE from 'three';
+import { OrbitControls } from './OrbitControls';
+import { GUI } from 'dat.gui';
 
 import SimplexNoise from './perlin-simplex-noise';
 
-function createPlanetTexture(geometry: THREE.BufferGeometry): THREE.Texture {
-  const noise = new SimplexNoise();
+// const stats = Stats()
 
-  const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 1024;
+type PlanetTextureOptions = {
+  simplexNoiseScale: number,
+}
+
+const options: PlanetTextureOptions = {
+  simplexNoiseScale: 1,
+};
+
+function createGui(planet: THREE.Mesh, planetCanvas: HTMLCanvasElement) {
+  const controls = {
+    redraw() {
+      drawPlanetTexture(planet.geometry, planetCanvas, options);
+      planet.material = buildPlanetMaterial(planetCanvas);
+    },
+  };
+
+  const gui = new GUI();
+  const simplexNoise = gui.addFolder('Simplex Noise');
+  simplexNoise.add(options, 'simplexNoiseScale', 0, 30, 0.3);
+  simplexNoise.open();
+  gui.add(controls, 'redraw');
+}
+
+// draws to the provided canvas
+function drawPlanetTexture(geometry: THREE.BufferGeometry, canvas: HTMLCanvasElement, options: PlanetTextureOptions): void {
+  const noise = new SimplexNoise();
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#000000';
   // const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
@@ -17,25 +41,7 @@ function createPlanetTexture(geometry: THREE.BufferGeometry): THREE.Texture {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = "#ffffff";
 
-  // for (let i = 0; i < positionData.length / 3; i++) {
-  //   const x = positionData[i * 3 + 0];
-  //   const y = positionData[i * 3 + 1];
-  //   const z = positionData[i * 3 + 2];
-  //   const uvx = (uvData[i * 2 + 0] + 50) * canvas.width / 100;
-  //   const uvy = (uvData[i * 2 + 1] + 50) * canvas.height / 100;
-
-  //   if (i % 3 === 0) {
-  //     if (i !== 0) {
-  //       ctx.closePath();
-  //       ctx.stroke();
-  //     }
-
-  //     ctx.beginPath();
-  //     ctx.moveTo(uvx, uvy);
-  //   } else {
-  //     ctx.lineTo(uvx, uvy);
-  //   }
-  // }
+  // stolen code: https://threejs.org/examples/misc_uv_tests.html
   const index = geometry.index;
   const positionAttribute = geometry.attributes.position as THREE.Float32BufferAttribute;
   const uvAttribute = geometry.attributes.uv as THREE.Float32BufferAttribute;
@@ -83,10 +89,10 @@ function createPlanetTexture(geometry: THREE.BufferGeometry): THREE.Texture {
     // const gradients = [];
     const a = new THREE.Vector2();
     ctx.beginPath();
-    for ( let j = 0, jl = uvs.length; j < jl; j ++ ) {
+    for (let j = 0, jl = uvs.length; j < jl; j ++) {
 
 			const uv = uvs[ j ];
-      const v = (new THREE.Vector3()).fromBufferAttribute(positionAttribute, face[j]);
+      const v = (new THREE.Vector3()).fromBufferAttribute(positionAttribute, face[ j ]);
 
 			a.x += uv.x;
 			a.y += uv.y;
@@ -100,12 +106,30 @@ function createPlanetTexture(geometry: THREE.BufferGeometry): THREE.Texture {
 				ctx.lineTo(x, y);
 			}
 
-      const height = Math.floor((noise.noise3d(v.x, v.y, v.z) + 1) / 2 * 255).toString(16).padStart(2, '0');
-      const grd = ctx.createRadialGradient(x, y, 0, x, y, 8);
-      grd.addColorStop(0, "#ffffff" + height);
-      grd.addColorStop(1, "#00000000");
+      const height = (noise.noise3d(
+        v.x * options.simplexNoiseScale,
+        v.y * options.simplexNoiseScale,
+        v.z * options.simplexNoiseScale,
+      ) + 1) / 2;
+      // const height = Math.min(Math.abs(v.z), Math.abs(v.x), Math.abs(v.y));
+      const heightHex = Math.floor(height * 255).toString(16).padStart(2, '0');
+
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, 10);
+      grd.addColorStop(0, "#ffffff" + heightHex);
+      grd.addColorStop(1, "#ffffff00");
       ctx.fillStyle = grd;
       ctx.fillRect(x - 10, y - 10, 20, 20);
+
+      // color the seam
+      if (x < 10 || x > canvas.width - 10) {
+        const xo = x + canvas.width * -Math.sign(x - canvas.width / 2);
+        const yo = y;
+        const grd = ctx.createRadialGradient(xo, yo, 0, xo, yo, 10);
+        grd.addColorStop(0, "#ffffff" + heightHex);
+        grd.addColorStop(1, "#ffffff00");
+        ctx.fillStyle = grd;
+        ctx.fillRect(xo - 10, yo - 10, 20, 20);
+      }
       // gradients.push(grd);
 		}
     ctx.closePath();
@@ -124,43 +148,37 @@ function createPlanetTexture(geometry: THREE.BufferGeometry): THREE.Texture {
 
 		// ctx.stroke();
   }
-
-  document.body.append(canvas);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  return texture;
 }
 
-function buildPlanet() {
-  // const geometry = new THREE.PlaneGeometry( 100, 100, 4, 4 );
-  const geometry = new THREE.IcosahedronGeometry(1, 15);
-
-  const texture = createPlanetTexture(geometry);
-  // const attr = geometry.getAttribute('position');
-  // const vs = Array.from(attr.array);
-  // for (let i = 0; i < vs.length; i += 3) {
-  //   const x = vs[i];
-  //   const y = vs[i + 1];
-  //   const z = vs[i + 2];
-  //   const height = noise.noise3d(x, y, z) * 0.1 + 0.5;
-  //   vs[i] = x * height;
-  //   vs[i + 1] = y * height;
-  //   vs[i + 2] = z * height;
-  // }
-
-  // geometry.setAttribute('position', new THREE.Float32BufferAttribute( vs, 3 ));
+function buildPlanetMaterial(canvas: HTMLCanvasElement): THREE.Material {
+  const texture = new THREE.CanvasTexture(canvas, THREE.UVMapping, THREE.RepeatWrapping, THREE.RepeatWrapping, THREE.LinearFilter, THREE.LinearFilter);
 
   const material = new THREE.MeshStandardMaterial({
-    color: 0x00ff00,
+    // color: 0x00ff00,
     displacementMap: texture,
-    // map: texture,
+    map: texture,
   });
-  const mesh = new THREE.Mesh(geometry, material);
-  return mesh;
+  return material;
+}
+
+function buildPlanet(): [THREE.Mesh, HTMLCanvasElement] {
+  // const geometry = new THREE.PlaneGeometry( 100, 100, 4, 4 );
+  const geometry = new THREE.IcosahedronGeometry(1, 20);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  drawPlanetTexture(geometry, canvas, options);
+  document.body.append(canvas);
+
+  
+  const mesh = new THREE.Mesh(geometry, buildPlanetMaterial(canvas));
+  return [mesh, canvas];
 }
 
 function main() {
   console.log('Starting');
+
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
@@ -168,28 +186,37 @@ function main() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  const planet = buildPlanet();
+  const [planet, planetCanvas] = buildPlanet();
   scene.add(planet);
 
+  createGui(planet, planetCanvas);
+
+  const lightHolder = new THREE.Group();
+
   const light = new THREE.PointLight(0xddddff);
-  light.position.z = 5;
-  scene.add(light);
+  light.position.z = 4;
+  lightHolder.add(light);
 
   const light2 = new THREE.PointLight(0xffdddd);
   // light2.position.z = 5;
   light2.position.y = 5;
-  scene.add(light2);
+  lightHolder.add(light2);
+  scene.add(lightHolder);
 
-  camera.position.z = 5;
+  const controls = new OrbitControls(camera, renderer.domElement);
+  
+  camera.position.z = 4;
+  controls.update();
 
   function animate() {
     requestAnimationFrame(animate);
-    planet.rotation.x += 0.01;
-    planet.rotation.y += 0.01;
+    // planet.rotation.x += 0.01;
+    // planet.rotation.y += 0.01;
+    controls.update();
+    lightHolder.quaternion.copy(camera.quaternion);
     renderer.render(scene, camera);
   }
   animate();
-  buildPlanet();
 }
 
 window.addEventListener('load', main);
