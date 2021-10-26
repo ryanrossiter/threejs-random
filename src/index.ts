@@ -8,10 +8,16 @@ import SimplexNoise from './perlin-simplex-noise';
 
 type PlanetTextureOptions = {
   simplexNoiseScale: number,
+  magnitude: number,
+  floor: number,
+  ceiling: number,
 }
 
 const options: PlanetTextureOptions = {
-  simplexNoiseScale: 1,
+  simplexNoiseScale: 1.2,
+  magnitude: 1,
+  floor: 0,
+  ceiling: 0.5,
 };
 
 function createGui(planet: THREE.Mesh, planetCanvas: HTMLCanvasElement) {
@@ -24,7 +30,10 @@ function createGui(planet: THREE.Mesh, planetCanvas: HTMLCanvasElement) {
 
   const gui = new GUI();
   const simplexNoise = gui.addFolder('Simplex Noise');
-  simplexNoise.add(options, 'simplexNoiseScale', 0, 30, 0.3);
+  simplexNoise.add(options, 'simplexNoiseScale', 0, 10, 0.1);
+  simplexNoise.add(options, 'magnitude', 0, 2, 0.1);
+  simplexNoise.add(options, 'floor', 0, 1, 0.05);
+  simplexNoise.add(options, 'ceiling', 0, 1, 0.05);
   simplexNoise.open();
   gui.add(controls, 'redraw');
 }
@@ -112,7 +121,17 @@ function drawPlanetTexture(geometry: THREE.BufferGeometry, canvas: HTMLCanvasEle
         v.z * options.simplexNoiseScale,
       ) + 1) / 2;
       // const height = Math.min(Math.abs(v.z), Math.abs(v.x), Math.abs(v.y));
-      const heightHex = Math.floor(height * 255).toString(16).padStart(2, '0');
+      const heightHex = Math.floor(
+        255 * Math.min(
+          1,
+          options.floor
+            + Math.min(1, Math.max(0,
+              height
+                * Math.abs(options.ceiling - options.floor)
+                * options.magnitude,
+            )),
+        )
+      ).toString(16).padStart(2, '0');
 
       const grd = ctx.createRadialGradient(x, y, 0, x, y, 10);
       grd.addColorStop(0, "#ffffff" + heightHex);
@@ -162,7 +181,6 @@ function buildPlanetMaterial(canvas: HTMLCanvasElement): THREE.Material {
 }
 
 function buildPlanet(): [THREE.Mesh, HTMLCanvasElement] {
-  // const geometry = new THREE.PlaneGeometry( 100, 100, 4, 4 );
   const geometry = new THREE.IcosahedronGeometry(1, 20);
 
   const canvas = document.createElement('canvas');
