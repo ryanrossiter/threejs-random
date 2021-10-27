@@ -293,11 +293,14 @@ function main() {
   console.log('Starting');
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  // const camera = new THREE.PerspectiveCamera(20, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const { innerWidth: width, innerHeight: height } = window;
+  const scale = 500 - Math.max(0, 500 - width) * 3;
+  const camera = new THREE.OrthographicCamera(width / - scale, width / scale, height / scale, height / - scale, 1, 1000);
 
   const renderer = new THREE.WebGLRenderer();
   // renderer.shadowMap.enabled = true;
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(width, height);
   document.body.appendChild(renderer.domElement);
 
   const [planet, planetCanvas] = buildPlanet();
