@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from './OrbitControls';
 import { GUI } from 'dat.gui';
 import { FBM } from './three-noise/FBM';
+import CanvasAnimation from './CanvasAnimation';
 
 // import SimplexNoise from './perlin-simplex-noise';
 // import createDeterministicRandom from './createDeterministicRandom';
@@ -13,12 +14,21 @@ const fbm = new FBM({
 });
 
 type PlanetCanvases = {
-  [k in "displacement" | "color"]: HTMLCanvasElement | null;
+  [k in "displacement" | "color" | "roughness"]: HTMLCanvasElement | null;
+} & {
+  [k in "displacementTexture" | "colorTexture" | "roughnessTexture"]: THREE.CanvasTexture | null;
+} & {
+  displacementCanvasAnim: CanvasAnimation | null,
 }
 
 const planetCanvases: PlanetCanvases = {
   displacement: null,
+  displacementTexture: null,
   color: null,
+  colorTexture: null,
+  roughness: null,
+  roughnessTexture: null,
+  displacementCanvasAnim: null,
 }
 
 type PlanetTextureOptions = {
@@ -41,7 +51,9 @@ function createGui(planet: THREE.Mesh, planetCanvases: PlanetCanvases) {
   const controls = {
     redraw() {
       drawPlanetTexture(planet.geometry, planetCanvases, options);
-      planet.material = buildPlanetMaterial(planetCanvases);
+      // planet.material = buildPlanetMaterial(planetCanvases);
+      planetCanvases.colorTexture.needsUpdate = true;
+      planetCanvases.displacementTexture.needsUpdate = true;
     },
   };
 
@@ -58,9 +70,14 @@ function createGui(planet: THREE.Mesh, planetCanvases: PlanetCanvases) {
 
 // draws to the provided canvas
 function drawPlanetTexture(geometry: THREE.BufferGeometry, canvases: PlanetCanvases, options: PlanetTextureOptions): void {
+  const canvasAnim = canvases.displacementCanvasAnim = new CanvasAnimation(canvases.displacement, 1); // 12, 8 are nice
   const colorCtx = canvases.color.getContext('2d');
   colorCtx.fillStyle = '#ffffff';
   colorCtx.fillRect(0, 0, canvases.color.width, canvases.color.height);
+
+  const roughnessCtx = canvases.roughness.getContext('2d');
+  roughnessCtx.fillStyle = '#ffffff';
+  roughnessCtx.fillRect(0, 0, canvases.roughness.width, canvases.roughness.height);
 
   const ctx = canvases.displacement.getContext('2d');
   ctx.fillStyle = '#000000';
@@ -136,23 +153,36 @@ function drawPlanetTexture(geometry: THREE.BufferGeometry, canvases: PlanetCanva
       //   v.z * options.noiseScale,
       // ) + 1) / 2;
       // const height = Math.min(Math.abs(v.z), Math.abs(v.x), Math.abs(v.y));
+      const midScalingFac = Math.abs(options.ceiling - options.floor) * options.magnitude;
       const scaledHeight = Math.min(
         1,
         options.floor
           + Math.min(1, Math.max(0,
-            height
-              * Math.abs(options.ceiling - options.floor)
-              * options.magnitude,
+            height * midScalingFac,
           )),
       );
       heightAvg += scaledHeight;
-      const heightHex = Math.floor(255 * scaledHeight).toString(16).padStart(2, '0');
 
+      // const heightHex = Math.floor(255 * scaledHeight).toString(16).padStart(2, '0');
+      // ctx.fillStyle = "#" + heightHex + heightHex + heightHex;
+      // ctx.beginPath();
+      // ctx.arc(x, y, 5, 0, Math.PI * 2);
+      // ctx.fill();
 
-      ctx.fillStyle = "#" + heightHex + heightHex + heightHex;
-      ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
-      ctx.fill();
+      const waveNoise = fbm.get3(v.multiplyScalar(100)); // basically white noise
+      const offset = Math.random();
+      const waterLevel = options.floor + options.waterDepth;
+      const waterFac = Math.max(0, Math.sign(waterLevel - scaledHeight));
+      canvasAnim.drawAllFrames((i, ctx2) => {
+        // const animFac = Math.max(0, Math.sign(waterLevel - scaledHeight)) * (Math.sin(v.x ^ v.y ^ v.z + i / canvasAnim.frames * 2 * Math.PI) + 1) / 2 * midScalingFac * 0.05;
+        // const animFac = waterFac * Math.random() * 0.01;
+        const animFac = waterFac * (Math.sin(waveNoise + Math.sin((i / canvasAnim.frames + offset) * 2 * Math.PI)) + 1) / 2 * 0.01;
+        const hh = Math.floor(255 * (scaledHeight + animFac)).toString(16).padStart(2, '0');
+        ctx2.fillStyle = "#" + hh + hh + hh;
+        ctx2.beginPath();
+        ctx2.arc(x, y, 5, 0, Math.PI * 2);
+        ctx2.fill();
+      });
       // const grd = ctx.createRadialGradient(x, y, 0, x, y, 5);
       // grd.addColorStop(0, "#" + heightHex + heightHex + heightHex + 'ff');
       // grd.addColorStop(1, "#" + heightHex + heightHex + heightHex + '00');
@@ -191,7 +221,7 @@ function drawPlanetTexture(geometry: THREE.BufferGeometry, canvases: PlanetCanva
     const waterLevel = options.floor + options.waterDepth;
     const rgb = [
       0.1,
-      Math.max(0, Math.sin(heightAvg / 2 + 0.5)),
+      Math.max(0, Math.sin(heightAvg / 2 + 0.5)) ** 2,
       Math.min(1, Math.max(0, waterLevel - heightAvg) * (1 / (options.waterDepth))),//Math.max(0, Math.cos(heightAvg * 2)),
     ];
     // const heightHex = Math.floor(255 * heightAvg).toString(16).padStart(2, '0').slice(-2);
@@ -218,6 +248,27 @@ function drawPlanetTexture(geometry: THREE.BufferGeometry, canvases: PlanetCanva
       colorCtx.stroke();
     }
     
+
+    // roughness
+    if (heightAvg < waterLevel) {
+      roughnessCtx.fillStyle = '#555555'; // reflectiveness
+
+      roughnessCtx.beginPath();
+      for (let i = 0; i < texPoints.length; i++) {
+        const { x, y } = texPoints[i];
+        if ( i === 0 ) {
+          roughnessCtx.moveTo(x, y);
+        } else {
+          roughnessCtx.lineTo(x, y);
+        }
+
+        if (x < 10) offscreen = 1;
+        else if (x > canvases.color.width - 10) offscreen = -1;
+      }
+      roughnessCtx.closePath();
+      roughnessCtx.fill();
+    }
+
     // ctx.fillStyle = "#ffffff";
     // ctx.fill();
 
@@ -235,7 +286,7 @@ function drawPlanetTexture(geometry: THREE.BufferGeometry, canvases: PlanetCanva
 }
 
 function buildPlanetMaterial(canvases: PlanetCanvases): THREE.Material {
-  const displacementTexture = new THREE.CanvasTexture(
+  canvases.displacementTexture = new THREE.CanvasTexture(
     canvases.displacement,
     THREE.UVMapping,
     THREE.RepeatWrapping,
@@ -244,8 +295,17 @@ function buildPlanetMaterial(canvases: PlanetCanvases): THREE.Material {
     THREE.LinearFilter,
   );
 
-  const colorTexture = new THREE.CanvasTexture(
+  canvases.colorTexture = new THREE.CanvasTexture(
     canvases.color,
+    THREE.UVMapping,
+    THREE.RepeatWrapping,
+    THREE.RepeatWrapping,
+    THREE.LinearFilter,
+    THREE.LinearFilter,
+  );
+
+  canvases.roughnessTexture = new THREE.CanvasTexture(
+    canvases.roughness,
     THREE.UVMapping,
     THREE.RepeatWrapping,
     THREE.RepeatWrapping,
@@ -255,8 +315,9 @@ function buildPlanetMaterial(canvases: PlanetCanvases): THREE.Material {
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    displacementMap: displacementTexture,
-    map: colorTexture,
+    displacementMap: canvases.displacementTexture,
+    map: canvases.colorTexture,
+    roughnessMap: canvases.roughnessTexture,
     flatShading: true,
     // roughness: 0.2,
   });
@@ -268,7 +329,7 @@ function buildPlanet(): [THREE.Mesh, PlanetCanvases] {
   // const geometry = new THREE.TorusGeometry(1, 0.5, 50, 50);
   // const geometry = new THREE.ConeGeometry(1, 3, 50, 50);
   // const geometry = new THREE.TorusKnotGeometry(1, 0.1, 50, 50);
-  const geometry = new THREE.IcosahedronGeometry(1, 20);
+  const geometry = new THREE.IcosahedronGeometry(1, 40);
 
   const displacementCanvas = document.createElement('canvas');
   displacementCanvas.width = 1024;
@@ -276,14 +337,23 @@ function buildPlanet(): [THREE.Mesh, PlanetCanvases] {
   const colorCanvas = document.createElement('canvas');
   colorCanvas.width = 1024;
   colorCanvas.height = 1024;
+  const roughnessCanvas = document.createElement('canvas');
+  roughnessCanvas.width = 1024;
+  roughnessCanvas.height = 1024;
 
   const planetCanvases: PlanetCanvases = {
     displacement: displacementCanvas,
     color: colorCanvas,
+    roughness: roughnessCanvas,
+    displacementTexture: null,
+    colorTexture: null,
+    roughnessTexture: null,
+    displacementCanvasAnim: null,
   }
   drawPlanetTexture(geometry, planetCanvases, options);
   document.body.append(displacementCanvas);
   document.body.append(colorCanvas);
+  document.body.append(roughnessCanvas);
 
   const mesh = new THREE.Mesh(geometry, buildPlanetMaterial(planetCanvases));
   return [mesh, planetCanvases];
@@ -303,10 +373,10 @@ function main() {
   renderer.setSize(width, height);
   document.body.appendChild(renderer.domElement);
 
-  const [planet, planetCanvas] = buildPlanet();
+  const [planet, planetCanvases] = buildPlanet();
   scene.add(planet);
 
-  createGui(planet, planetCanvas);
+  createGui(planet, planetCanvases);
 
   const sun = new THREE.PointLight(0xffa044, 1, 100, 0);
   sun.position.z = 40;
@@ -338,8 +408,15 @@ function main() {
     requestAnimationFrame(animate);
     // planet.rotation.x += 0.01;
     // planet.rotation.y += 0.01;
+
+    const updatedDisplacementCanvas = planetCanvases.displacementCanvasAnim.update();
+    if (updatedDisplacementCanvas) {
+      planetCanvases.displacementTexture.needsUpdate = true;
+    }
+
     controls.update();
     lightHolder.quaternion.copy(camera.quaternion);
+
     renderer.render(scene, camera);
   }
   animate();
