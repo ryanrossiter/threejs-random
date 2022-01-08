@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { OrbitControls } from './OrbitControls';
 import { GUI } from 'dat.gui';
 import Planet, { PlanetNS } from './Planet';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+
+const assetLoader = new GLTFLoader();
+
 
 const options: PlanetNS.TextureOptions = {
   noiseScale: 1.2,
@@ -45,16 +49,50 @@ function main() {
 
   const planet = new Planet(options);
   scene.add(planet);
-
   createGui(planet);
 
-  const sun = new THREE.PointLight(0xffa044, 1, 100, 0);
+  // alternative ocean which is just a sphere - we could not process ocean segements
+  // and just use this sphere to increase performance?
+  const atmosphere = new THREE.IcosahedronGeometry(1.24, 40)
+  const material = new THREE.MeshPhongMaterial({
+    color: 0x0055ff,
+    specular: 0x050505,
+    shininess: 75,
+  });
+  const sphere = new THREE.Mesh(atmosphere, material);
+  scene.add(sphere);
+
+  // add tree
+  // for (let x = 0; x < planet.points.length; x += 5000) {
+  //   let randomPoint = planet.points[x]
+  //   assetLoader.load('assets/tree.gltf', (gltf) => {
+  //     gltf.scene.scale.multiplyScalar(1 / 20)
+
+
+  //     console.log(randomPoint);
+
+  //     let axis = new THREE.Vector3(0, 1, 0)
+
+  //     gltf.scene.quaternion.setFromUnitVectors(axis, randomPoint.clone().normalize())
+  //     gltf.scene.position.x = randomPoint.x
+  //     gltf.scene.position.y = randomPoint.y
+  //     console.log(randomPoint.y)
+  //     gltf.scene.position.z = randomPoint.z
+
+  //     scene.add(gltf.scene)
+  //   })
+  // }
+
+
+  // const sun = new THREE.PointLight(0xffa044, 1, 100, 0);
+  const sun = new THREE.PointLight(0xffffff, 1, 100, 0);
   sun.position.z = 40;
   sun.position.x = 40;
   // sun.castShadow = true;
   scene.add(sun);
 
-  const ambientLight = new THREE.AmbientLight(0xbbd0ff, 0.3);
+  // const ambientLight = new THREE.AmbientLight(0xbbd0ff, 0.3);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
   scene.add(ambientLight);
 
   const lightHolder = new THREE.Group();
@@ -70,7 +108,7 @@ function main() {
   scene.add(lightHolder);
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  
+
   camera.position.z = 4;
   controls.update();
 
